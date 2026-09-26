@@ -1,0 +1,11 @@
+groq
+python-dotenv
+pydantic
+requests
+tree-sitter
+tree-sitter-python
+chromadb
+sentence-transformers
+pytest
+langgraph
+langgraph-checkpoint-sqlite
