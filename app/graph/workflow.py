@@ -35,19 +35,25 @@ from app.graph.nodes import (
 )
 
 
+# ============================================================
+# DIRECTORIES
+# ============================================================
+
 CHECKPOINT_DIRECTORY = Path(
     "data/langgraph"
 )
 
 CHECKPOINT_DIRECTORY.mkdir(
     parents=True,
-    exist_ok=True
+    exist_ok=True,
 )
+
 
 CHECKPOINT_DATABASE = (
     CHECKPOINT_DIRECTORY
     / "checkpoints.sqlite"
 )
+
 
 GRAPH_DIRECTORY = Path(
     "logs"
@@ -55,8 +61,9 @@ GRAPH_DIRECTORY = Path(
 
 GRAPH_DIRECTORY.mkdir(
     parents=True,
-    exist_ok=True
+    exist_ok=True,
 )
+
 
 GRAPH_MERMAID_FILE = (
     GRAPH_DIRECTORY
@@ -69,7 +76,7 @@ GRAPH_MERMAID_FILE = (
 # ============================================================
 
 def build_workflow(
-    checkpointer
+    checkpointer,
 ):
 
     graph = StateGraph(
@@ -180,7 +187,7 @@ def build_workflow(
     )
 
     # --------------------------------------------------------
-    # HUMAN APPROVAL ROUTING
+    # HUMAN APPROVAL
     # --------------------------------------------------------
 
     graph.add_conditional_edges(
@@ -251,6 +258,10 @@ def build_workflow(
         END,
     )
 
+    # --------------------------------------------------------
+    # COMPILE
+    # --------------------------------------------------------
+
     return graph.compile(
         checkpointer=checkpointer
     )
@@ -261,16 +272,20 @@ def build_workflow(
 # ============================================================
 
 def save_graph_visualization(
-    workflow
+    workflow,
 ) -> str:
 
-    drawable_graph = workflow.get_graph()
+    drawable_graph = (
+        workflow.get_graph()
+    )
 
-    mermaid = drawable_graph.draw_mermaid()
+    mermaid = (
+        drawable_graph.draw_mermaid()
+    )
 
     GRAPH_MERMAID_FILE.write_text(
         mermaid,
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
     return str(
@@ -297,11 +312,13 @@ def run_workflow(
     task: str,
     thread_id: str | None = None,
     approval_required: bool = True,
-) -> dict:
+) -> tuple[str, dict]:
 
     if thread_id is None:
 
-        thread_id = create_thread_id()
+        thread_id = (
+            create_thread_id()
+        )
 
     config = {
         "configurable": {
@@ -335,13 +352,22 @@ def run_workflow(
 
         result = workflow.invoke(
             initial_state,
-            config
+            config,
         )
 
-        return {
-            "thread_id": thread_id,
-            "result": result,
-        }
+        # IMPORTANT:
+        #
+        # Streamlit expects:
+        #
+        # thread_id, result = run_workflow(...)
+        #
+        # Therefore return a tuple instead of wrapping
+        # the values inside another dictionary.
+
+        return (
+            thread_id,
+            result,
+        )
 
 
 # ============================================================
@@ -373,13 +399,19 @@ def resume_workflow(
                     "approved": approved
                 }
             ),
-            config
+            config,
         )
 
-        return {
-            "thread_id": thread_id,
-            "result": result,
-        }
+        # IMPORTANT:
+        #
+        # Streamlit expects resume_workflow() to return
+        # the actual LangGraph state so that it can do:
+        #
+        # result.get("tests_passed")
+        #
+        # Do NOT wrap this inside another dictionary.
+
+        return result
 
 
 # ============================================================
@@ -387,10 +419,12 @@ def resume_workflow(
 # ============================================================
 
 def run_interactive_workflow(
-    task: str
+    task: str,
 ) -> dict:
 
-    thread_id = create_thread_id()
+    thread_id = (
+        create_thread_id()
+    )
 
     print(
         "\n========================================"
@@ -445,7 +479,7 @@ def run_interactive_workflow(
 
         result = workflow.invoke(
             initial_state,
-            config
+            config,
         )
 
         # ----------------------------------------------------
@@ -474,14 +508,14 @@ def run_interactive_workflow(
                 interrupts[0].value
                 if hasattr(
                     interrupts[0],
-                    "value"
+                    "value",
                 )
                 else interrupts[0]
             )
 
             if isinstance(
                 interrupt_value,
-                dict
+                dict,
             ):
 
                 print(
@@ -491,7 +525,7 @@ def run_interactive_workflow(
                 print(
                     interrupt_value.get(
                         "task",
-                        task
+                        task,
                     )
                 )
 
@@ -502,7 +536,7 @@ def run_interactive_workflow(
                 for file_path in (
                     interrupt_value.get(
                         "target_files",
-                        []
+                        [],
                     )
                 ):
 
@@ -517,7 +551,7 @@ def run_interactive_workflow(
                 print(
                     interrupt_value.get(
                         "guidance",
-                        ""
+                        "",
                     )
                 )
 
@@ -536,7 +570,7 @@ def run_interactive_workflow(
                 answer
                 in {
                     "y",
-                    "yes"
+                    "yes",
                 }
             )
 
@@ -546,7 +580,7 @@ def run_interactive_workflow(
                         "approved": approved
                     }
                 ),
-                config
+                config,
             )
 
         # ----------------------------------------------------

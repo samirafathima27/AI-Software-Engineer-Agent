@@ -1,11 +1,45 @@
+# Environment variables / secrets
 .env
-venv/
-.venv/
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*$py.class
+*.so
 
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime / generated data
 data/chroma/
 data/langgraph/
-
 logs/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/

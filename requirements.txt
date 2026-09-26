@@ -9,3 +9,4 @@ sentence-transformers
 pytest
 langgraph
 langgraph-checkpoint-sqlite
+streamlit
