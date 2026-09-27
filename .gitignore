@@ -43,3 +43,6 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Uploaded user projects
+workspace/user_projects/

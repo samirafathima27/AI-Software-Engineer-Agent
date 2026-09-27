@@ -1,35 +1,42 @@
+import sys
+from pathlib import Path
+from uuid import uuid4
+import zipfile
+
 import streamlit as st
 
-from pathlib import Path
-import sys
 
-# Ensure the repository root is available on Python's import path.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import streamlit as st
-
-from app.graph.workflow import (
-    run_workflow,
-    resume_workflow,
-)
-
-from app.graph.workflow import (
-    run_workflow,
-    resume_workflow,
-)
-
-from app.tools.git_tools import (
-    git_branch,
-    git_status,
-)
+from app.graph.workflow import run_workflow, resume_workflow
+from app.tools.git_tools import git_branch
 
 
-# ============================================================
-# PAGE CONFIG
-# ============================================================
+WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+UPLOAD_ROOT = WORKSPACE_ROOT / "user_projects"
+UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+MAX_UPLOAD_MB = 50
+BLOCKED_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    ".pytest_cache",
+    ".mypy_cache",
+}
+BLOCKED_SUFFIXES = {".pem", ".key"}
+BLOCKED_NAMES = {
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+}
+
 
 st.set_page_config(
     page_title="AI Software Engineer",
@@ -39,133 +46,65 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# CSS
-# ============================================================
-
 st.markdown(
     """
     <style>
-
-    .stApp {
-        background: #080b12;
-        color: #e5e7eb;
-    }
-
+    .stApp { background:#080b12; color:#e5e7eb; }
     .main .block-container {
-        max-width: 1400px;
-        padding-top: 2.5rem;
-        padding-bottom: 4rem;
+        max-width:1400px;
+        padding-top:2.5rem;
+        padding-bottom:4rem;
     }
-
     [data-testid="stSidebar"] {
-        background: #0b0f17;
-        border-right: 1px solid #1e293b;
+        background:#0b0f17;
+        border-right:1px solid #1e293b;
     }
-
-    [data-testid="stSidebar"] .block-container {
-        padding-top: 2rem;
-    }
-
-    h1, h2, h3, h4 {
-        color: #f8fafc !important;
-    }
-
-    p, label {
-        color: #94a3b8;
-    }
-
+    h1,h2,h3,h4 { color:#f8fafc !important; }
+    p,label { color:#94a3b8; }
     textarea {
-        background-color: #0b1018 !important;
-        color: #e2e8f0 !important;
-        border: 1px solid #334155 !important;
-        border-radius: 10px !important;
+        background:#0b1018 !important;
+        color:#e2e8f0 !important;
+        border:1px solid #334155 !important;
+        border-radius:10px !important;
     }
-
-    textarea:focus {
-        border-color: #6366f1 !important;
-        box-shadow: 0 0 0 1px #6366f1 !important;
-    }
-
     .stButton > button {
-        min-height: 44px;
-        border-radius: 9px;
-        border: 1px solid #293548;
-        background: #111827;
-        color: #e2e8f0;
-        font-weight: 600;
+        min-height:44px;
+        border-radius:9px;
+        border:1px solid #293548;
+        background:#111827;
+        color:#e2e8f0;
+        font-weight:600;
     }
-
-    .stButton > button:hover {
-        border-color: #6366f1;
-        color: white;
-    }
-
     button[kind="primary"] {
-        background: linear-gradient(
-            135deg,
-            #6366f1,
-            #7c3aed
-        ) !important;
-
-        border: none !important;
-        color: white !important;
+        background:linear-gradient(135deg,#6366f1,#7c3aed) !important;
+        border:none !important;
+        color:white !important;
     }
-
     [data-testid="stVerticalBlockBorderWrapper"] {
-        background: #0d121b;
-        border: 1px solid #202b3b;
-        border-radius: 14px;
+        background:#0d121b;
+        border:1px solid #202b3b;
+        border-radius:14px;
     }
-
     [data-testid="stMetric"] {
-        background: #0d121b;
-        border: 1px solid #202b3b;
-        border-radius: 12px;
-        padding: 1rem;
+        background:#0d121b;
+        border:1px solid #202b3b;
+        border-radius:12px;
+        padding:1rem;
     }
-
-    [data-testid="stMetricLabel"] {
-        color: #64748b !important;
-    }
-
-    [data-testid="stMetricValue"] {
-        color: #f8fafc !important;
-    }
-
-    [data-testid="stStatusWidget"] {
-        border: 1px solid #293548;
-        border-radius: 12px;
-        background: #0d121b;
-    }
-
+    [data-testid="stMetricLabel"] { color:#64748b !important; }
+    [data-testid="stMetricValue"] { color:#f8fafc !important; }
     [data-testid="stExpander"] {
-        background: #0d121b;
-        border: 1px solid #202b3b;
-        border-radius: 10px;
+        background:#0d121b;
+        border:1px solid #202b3b;
+        border-radius:10px;
     }
-
-    hr {
-        border-color: #1e293b !important;
-    }
-
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
+    hr { border-color:#1e293b !important; }
+    #MainMenu, footer { visibility:hidden; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-# ============================================================
-# SESSION STATE
-# ============================================================
 
 defaults = {
     "workflow_result": None,
@@ -173,177 +112,205 @@ defaults = {
     "approval_pending": False,
     "approval_data": None,
     "task": "",
+    "project_path": None,
+    "project_name": None,
+    "project_source": None,
 }
 
 for key, value in defaults.items():
-
     if key not in st.session_state:
         st.session_state[key] = value
 
 
-# ============================================================
-# WORKFLOW RESULT NORMALIZER
-# ============================================================
-
 def normalize_workflow_response(response):
-    """
-    Handles all supported return formats from workflow.py.
-
-    Format A:
-        (thread_id, state)
-
-    Format B:
-        {
-            "thread_id": "...",
-            "result": state
-        }
-
-    Format C:
-        direct state dictionary
-    """
-
-    # --------------------------------------------------------
-    # Tuple
-    # --------------------------------------------------------
-
-    if isinstance(response, tuple):
-
-        if len(response) >= 2:
-
-            return (
-                response[0],
-                response[1],
-            )
-
-        return (
-            None,
-            {},
-        )
-
-    # --------------------------------------------------------
-    # Dictionary
-    # --------------------------------------------------------
+    if isinstance(response, tuple) and len(response) >= 2:
+        return response[0], response[1]
 
     if isinstance(response, dict):
+        if "thread_id" in response and "result" in response:
+            return response["thread_id"], response["result"]
+        return None, response
 
-        # Wrapped workflow response
-        if (
-            "thread_id" in response
-            and "result" in response
-        ):
+    return None, {
+        "status": "completed",
+        "tests_passed": False,
+        "iteration": 0,
+        "implementation_results": [],
+        "test_result": "",
+        "debug_result": "",
+        "review_result": "",
+        "workflow_output": str(response),
+    }
 
-            return (
-                response["thread_id"],
-                response["result"],
-            )
-
-        # Direct LangGraph state
-        return (
-            None,
-            response,
-        )
-
-    # --------------------------------------------------------
-    # Unexpected response
-    # --------------------------------------------------------
-
-    return (
-        None,
-        {
-            "status": "completed",
-            "tests_passed": False,
-            "iteration": 0,
-            "implementation_results": [],
-            "test_result": "",
-            "debug_result": "",
-            "review_result": "",
-            "workflow_output": str(response),
-        },
-    )
-
-
-# ============================================================
-# INTERRUPT EXTRACTION
-# ============================================================
 
 def extract_interrupt_data(result):
-
-    if not isinstance(
-        result,
-        dict,
-    ):
+    if not isinstance(result, dict):
         return None
 
-    interrupts = result.get(
-        "__interrupt__"
-    )
-
+    interrupts = result.get("__interrupt__")
     if not interrupts:
         return None
 
-    first_interrupt = interrupts[0]
+    first = interrupts[0]
 
-    if hasattr(
-        first_interrupt,
-        "value",
-    ):
+    if hasattr(first, "value"):
+        return first.value
 
-        return first_interrupt.value
-
-    if isinstance(
-        first_interrupt,
-        dict,
-    ):
-
-        return first_interrupt
+    if isinstance(first, dict):
+        return first
 
     return None
 
 
-# ============================================================
-# RESET
-# ============================================================
-
 def reset_workflow():
-
     st.session_state.workflow_result = None
     st.session_state.thread_id = None
     st.session_state.approval_pending = False
     st.session_state.approval_data = None
 
 
-# ============================================================
-# REPOSITORY
-# ============================================================
+def reset_project():
+    reset_workflow()
+    st.session_state.project_path = None
+    st.session_state.project_name = None
+    st.session_state.project_source = None
+
+
+def is_blocked_member(name: str) -> bool:
+    normalized = name.replace("\\", "/").strip("/")
+    if not normalized:
+        return True
+
+    parts = Path(normalized).parts
+
+    if any(part in BLOCKED_DIRS for part in parts):
+        return True
+
+    filename = parts[-1]
+    if filename in BLOCKED_NAMES:
+        return True
+
+    if any(filename.endswith(suffix) for suffix in BLOCKED_SUFFIXES):
+        return True
+
+    return False
+
+
+def safe_extract_zip(
+    uploaded_file,
+    destination: Path,
+) -> tuple[Path, int, int]:
+    """Safely extract a ZIP and return project root, files, skipped count."""
+
+    if uploaded_file.size and uploaded_file.size > MAX_UPLOAD_MB * 1024 * 1024:
+        raise ValueError(
+            f"ZIP is too large. Maximum allowed size is {MAX_UPLOAD_MB} MB."
+        )
+
+    destination.mkdir(parents=True, exist_ok=False)
+
+    extracted = 0
+    skipped = 0
+
+    with zipfile.ZipFile(uploaded_file) as archive:
+        for info in archive.infolist():
+            raw_name = info.filename.replace("\\", "/")
+
+            if not raw_name or raw_name.endswith("/"):
+                continue
+
+            if is_blocked_member(raw_name):
+                skipped += 1
+                continue
+
+            parts = Path(raw_name).parts
+
+            if any(part in {"", ".", ".."} for part in parts):
+                raise ValueError(
+                    f"Unsafe ZIP path detected: {info.filename}"
+                )
+
+            # Reject Unix symlink entries.
+            unix_mode = (info.external_attr >> 16) & 0o170000
+            if unix_mode == 0o120000:
+                skipped += 1
+                continue
+
+            target = (destination / Path(*parts)).resolve()
+
+            try:
+                target.relative_to(destination.resolve())
+            except ValueError as exc:
+                raise ValueError(
+                    f"Unsafe ZIP path detected: {info.filename}"
+                ) from exc
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            with archive.open(info) as source, target.open("wb") as output:
+                output.write(source.read())
+
+            extracted += 1
+
+    if extracted == 0:
+        raise ValueError(
+            "The ZIP does not contain any usable project files."
+        )
+
+    # If the ZIP contains exactly one top-level directory, use it as
+    # the project root. Otherwise use the extraction directory itself.
+    children = list(destination.iterdir())
+
+    if len(children) == 1 and children[0].is_dir():
+        root = children[0]
+    else:
+        root = destination
+
+    return root.resolve(), extracted, skipped
+
+
+def handle_upload(uploaded_file):
+    reset_project()
+
+    upload_id = uuid4().hex[:12]
+    destination = UPLOAD_ROOT / upload_id
+
+    try:
+        root, extracted, skipped = safe_extract_zip(
+            uploaded_file,
+            destination,
+        )
+
+        st.session_state.project_path = str(root)
+        st.session_state.project_name = root.name
+        st.session_state.project_source = uploaded_file.name
+
+        st.success(
+            f"Project loaded: **{root.name}** · "
+            f"{extracted} files extracted"
+            + (f" · {skipped} skipped" if skipped else "")
+        )
+
+    except Exception:
+        if destination.exists():
+            import shutil
+            shutil.rmtree(destination, ignore_errors=True)
+        raise
+
 
 try:
-
     branch = git_branch()
-
 except Exception:
-
     branch = "unknown"
 
 
-# ============================================================
-# SIDEBAR
-# ============================================================
-
 with st.sidebar:
-
-    st.title(
-        "◈ AI Software Engineer"
-    )
-
-    st.caption(
-        "Autonomous repository engineering agent"
-    )
+    st.title("◈ AI Software Engineer")
+    st.caption("Autonomous repository engineering agent")
 
     st.divider()
 
-    st.subheader(
-        "Workflow"
-    )
+    st.subheader("Workflow")
 
     steps = [
         ("1", "Understand", "Read repository context"),
@@ -356,39 +323,24 @@ with st.sidebar:
     ]
 
     for number, name, description in steps:
-
-        st.markdown(
-            f"**{number}. {name}**"
-        )
-
-        st.caption(
-            description
-        )
+        st.markdown(f"**{number}. {name}**")
+        st.caption(description)
 
     st.divider()
+    st.subheader("Project")
 
-    st.subheader(
-        "Repository"
-    )
-
-    st.write(
-        f"**Branch:** `{branch}`"
-    )
-
-    st.write(
-        "**Connection:** 🟢 Connected"
-    )
+    if st.session_state.project_path:
+        st.write(
+            f"**Loaded:** `{st.session_state.project_name}`"
+        )
+        st.caption(st.session_state.project_path)
+    else:
+        st.write("**Loaded:** Demo project")
+        st.caption("workspace/sample_project")
 
     st.divider()
+    st.caption("ZIP Upload · RAG · LangGraph · Multi-Agent · Pytest")
 
-    st.caption(
-        "RAG · LangGraph · Multi-Agent · Pytest · Git"
-    )
-
-
-# ============================================================
-# HEADER
-# ============================================================
 
 header_left, header_right = st.columns(
     [5, 1],
@@ -396,60 +348,91 @@ header_left, header_right = st.columns(
 )
 
 with header_left:
-
-    st.title(
-        "◈ AI Software Engineer"
-    )
-
+    st.title("◈ AI Software Engineer")
     st.write(
-        "An autonomous coding agent that understands your "
-        "repository, plans changes, writes code, runs tests "
-        "and fixes failures."
+        "Upload a project ZIP, describe a software task, and let the "
+        "agent inspect, plan, implement, test, debug and review the change."
     )
 
 with header_right:
+    st.success("● AGENT ONLINE")
 
-    st.success(
-        "● AGENT ONLINE"
-    )
-
-
-# ============================================================
-# METRICS
-# ============================================================
-
-st.write("")
 
 m1, m2, m3, m4 = st.columns(4)
 
 with m1:
     st.metric(
-        "Repository",
-        "Connected",
+        "Project",
+        st.session_state.project_name or "Demo",
     )
 
 with m2:
-    st.metric(
-        "Git Branch",
-        branch,
-    )
+    st.metric("Git Branch", branch)
 
 with m3:
-    st.metric(
-        "Architecture",
-        "Multi-Agent",
-    )
+    st.metric("Architecture", "Multi-Agent")
 
 with m4:
-    st.metric(
-        "Testing",
-        "Pytest",
-    )
+    st.metric("Testing", "Pytest")
 
 
-# ============================================================
-# MAIN AREA
-# ============================================================
+st.write("")
+
+upload_col, project_col = st.columns(
+    [2, 1],
+    gap="large",
+)
+
+with upload_col:
+    with st.container(border=True):
+        st.caption("PROJECT INPUT")
+        st.subheader("Upload your repository")
+
+        uploaded = st.file_uploader(
+            "Upload a ZIP containing your software project",
+            type=["zip"],
+            help=(
+                f"Maximum ZIP size: {MAX_UPLOAD_MB} MB. "
+                "Sensitive files such as .env, .pem and .key are skipped."
+            ),
+        )
+
+        if uploaded is not None:
+            upload_key = f"{uploaded.name}:{uploaded.size}"
+
+            if st.session_state.get("_last_upload_key") != upload_key:
+                try:
+                    handle_upload(uploaded)
+                    st.session_state["_last_upload_key"] = upload_key
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Could not load project: {exc}")
+
+with project_col:
+    with st.container(border=True):
+        st.caption("CURRENT PROJECT")
+        st.subheader(
+            st.session_state.project_name or "Built-in demo"
+        )
+
+        if st.session_state.project_path:
+            st.success("User project loaded")
+            st.caption(
+                "The agent will operate only inside this project."
+            )
+
+            if st.button(
+                "Remove uploaded project",
+                use_container_width=True,
+            ):
+                reset_project()
+                st.session_state["_last_upload_key"] = None
+                st.rerun()
+        else:
+            st.info(
+                "No ZIP uploaded. The built-in sample project will be used."
+            )
+
 
 st.write("")
 
@@ -458,29 +441,10 @@ task_column, capability_column = st.columns(
     gap="large",
 )
 
-
-# ============================================================
-# TASK
-# ============================================================
-
 with task_column:
-
-    with st.container(
-        border=True
-    ):
-
-        st.caption(
-            "SOFTWARE TASK"
-        )
-
-        st.subheader(
-            "What should the agent build or fix?"
-        )
-
-        st.write(
-            "Describe the software engineering task in plain English. "
-            "The agent will inspect the repository before modifying anything."
-        )
+    with st.container(border=True):
+        st.caption("SOFTWARE TASK")
+        st.subheader("What should the agent build or fix?")
 
         task = st.text_area(
             "Task",
@@ -496,14 +460,9 @@ with task_column:
 
         st.session_state.task = task
 
-        st.write("")
-
-        run_col, clear_col = st.columns(
-            [3, 1]
-        )
+        run_col, clear_col = st.columns([3, 1])
 
         with run_col:
-
             run_clicked = st.button(
                 "Run AI Engineer  →",
                 type="primary",
@@ -511,265 +470,155 @@ with task_column:
             )
 
         with clear_col:
-
             clear_clicked = st.button(
                 "Clear",
                 use_container_width=True,
             )
 
         if clear_clicked:
-
             reset_workflow()
-
             st.session_state.task = ""
-
             st.rerun()
 
 
-# ============================================================
-# CAPABILITIES
-# ============================================================
-
 with capability_column:
-
-    with st.container(
-        border=True
-    ):
-
-        st.caption(
-            "WHAT THE AGENT DOES"
-        )
-
-        st.subheader(
-            "Engineering pipeline"
-        )
+    with st.container(border=True):
+        st.caption("ENGINEERING PIPELINE")
+        st.subheader("What the agent does")
 
         st.markdown(
             """
-            **🔍 Understand**
+**🔍 Understand**  
+Indexes and retrieves relevant repository code.
 
-            Searches the repository using AST parsing and RAG.
+**🧠 Plan**  
+Identifies the files and changes required.
 
-            **🧠 Plan**
+**👤 Approve**  
+Pauses before source-code modification.
 
-            Identifies the files and changes required.
+**⚙️ Implement**  
+Generates the requested source changes.
 
-            **👤 Approve**
+**🧪 Test**  
+Generates and executes pytest tests.
 
-            Pauses for human confirmation.
+**🔄 Debug**  
+Diagnoses failures and attempts fixes.
 
-            **⚙️ Implement**
-
-            Generates the required source changes.
-
-            **🧪 Test**
-
-            Generates and executes automated tests.
-
-            **🔄 Debug**
-
-            Diagnoses failures and attempts fixes.
-
-            **🔎 Review**
-
-            Performs a final engineering review.
-            """
+**🔎 Review**  
+Performs a final engineering review.
+"""
         )
 
-
-# ============================================================
-# RUN
-# ============================================================
 
 if run_clicked:
-
     if not task.strip():
-
-        st.warning(
-            "Please describe the software task first."
-        )
-
+        st.warning("Please describe the software task first.")
     else:
-
         reset_workflow()
+
+        selected_project = (
+            st.session_state.project_path
+            or str(WORKSPACE_ROOT / "sample_project")
+        )
 
         with st.status(
             "AI Software Engineer is working...",
             expanded=True,
         ) as status:
-
             try:
-
-                st.write(
-                    "🔍 Indexing repository..."
-                )
-
-                st.write(
-                    "🧠 Retrieving relevant code with RAG..."
-                )
-
-                st.write(
-                    "📋 Analyzing requested changes..."
-                )
-
-                st.write(
-                    "🗂️ Preparing implementation plan..."
-                )
-
-                # ------------------------------------------------
-                # IMPORTANT:
-                # Do NOT directly unpack the response.
-                # ------------------------------------------------
+                st.write("🔍 Indexing selected project...")
+                st.write("🧠 Retrieving relevant code with RAG...")
+                st.write("📋 Analyzing requested changes...")
+                st.write("🗂️ Preparing implementation plan...")
 
                 raw_response = run_workflow(
                     task.strip(),
+                    project_path=selected_project,
                     approval_required=True,
                 )
 
-                thread_id, result = (
-                    normalize_workflow_response(
-                        raw_response
-                    )
+                thread_id, result = normalize_workflow_response(
+                    raw_response
                 )
 
-                st.session_state.thread_id = (
-                    thread_id
-                )
+                st.session_state.thread_id = thread_id
 
-                # ------------------------------------------------
-                # APPROVAL INTERRUPT
-                # ------------------------------------------------
-
-                approval_data = (
-                    extract_interrupt_data(
-                        result
-                    )
-                )
+                approval_data = extract_interrupt_data(result)
 
                 if approval_data is not None:
-
-                    st.session_state.approval_data = (
-                        approval_data
-                    )
-
-                    st.session_state.approval_pending = (
-                        True
-                    )
+                    st.session_state.approval_data = approval_data
+                    st.session_state.approval_pending = True
 
                     status.update(
                         label="Waiting for your approval",
                         state="complete",
                     )
-
                 else:
-
-                    st.session_state.workflow_result = (
-                        result
-                    )
-
+                    st.session_state.workflow_result = result
                     status.update(
                         label="Workflow completed",
                         state="complete",
                     )
 
             except Exception as exc:
-
                 status.update(
                     label="Workflow failed",
                     state="error",
                 )
 
-                st.error(
-                    f"Workflow error: {exc}"
-                )
+                st.error(f"Workflow error: {exc}")
 
-                with st.expander(
-                    "Technical error details"
-                ):
+                with st.expander("Technical error details"):
+                    st.exception(exc)
 
-                    st.exception(
-                        exc
-                    )
-
-
-# ============================================================
-# APPROVAL
-# ============================================================
 
 if st.session_state.approval_pending:
-
     st.write("")
 
-    with st.container(
-        border=True
-    ):
+    with st.container(border=True):
+        st.caption("HUMAN APPROVAL REQUIRED")
+        st.subheader("Review proposed changes")
 
-        st.caption(
-            "HUMAN APPROVAL REQUIRED"
+        approval_data = st.session_state.approval_data or {}
+
+        project_path = approval_data.get(
+            "project_path",
+            st.session_state.project_path or "",
         )
 
-        st.subheader(
-            "Review proposed changes"
+        target_files = approval_data.get("target_files", [])
+        planned_test_files = approval_data.get("planned_test_files", [])
+        approval_files = approval_data.get(
+            "approval_files",
+            target_files + planned_test_files,
         )
+        guidance = approval_data.get("guidance", "")
+        message = approval_data.get("message", "")
 
-        approval_data = (
-            st.session_state.approval_data
-            or {}
-        )
+        st.write("**Project:**")
+        st.code(project_path, language="text")
 
-        target_files = approval_data.get(
-            "target_files",
-            [],
-        )
+        if approval_files:
+            st.write("**The agent proposes changes to:**")
 
-        guidance = approval_data.get(
-            "guidance",
-            "",
-        )
-
-        message = approval_data.get(
-            "message",
-            "",
-        )
-
-        if target_files:
-
-            st.write(
-                "**The agent wants to modify:**"
-            )
-
-            for file_name in target_files:
-
-                st.code(
-                    file_name,
-                    language="text",
-                )
+            for file_name in approval_files:
+                st.code(file_name, language="text")
 
         if message:
-
-            st.info(
-                message
-            )
+            st.info(message)
 
         if guidance:
-
             with st.expander(
                 "View implementation plan",
                 expanded=True,
             ):
+                st.markdown(guidance)
 
-                st.markdown(
-                    guidance
-                )
-
-        st.write("")
-
-        approve_col, reject_col = st.columns(
-            2
-        )
+        approve_col, reject_col = st.columns(2)
 
         with approve_col:
-
             approve_clicked = st.button(
                 "✓ Approve & Continue",
                 type="primary",
@@ -777,100 +626,48 @@ if st.session_state.approval_pending:
             )
 
         with reject_col:
-
             reject_clicked = st.button(
                 "✕ Reject Changes",
                 use_container_width=True,
             )
 
-        # ========================================================
-        # APPROVE
-        # ========================================================
-
         if approve_clicked:
-
             with st.status(
                 "AI Engineer is implementing and testing...",
                 expanded=True,
             ) as status:
-
                 try:
-
-                    st.write(
-                        "⚙️ Implementing approved changes..."
-                    )
-
-                    st.write(
-                        "🧪 Generating and running tests..."
-                    )
-
-                    st.write(
-                        "🔄 Checking for failures..."
-                    )
-
-                    st.write(
-                        "🔎 Running final review..."
-                    )
+                    st.write("⚙️ Implementing approved changes...")
+                    st.write("🧪 Generating and running tests...")
+                    st.write("🔄 Checking for failures...")
+                    st.write("🔎 Running final review...")
 
                     raw_response = resume_workflow(
                         st.session_state.thread_id,
                         approved=True,
                     )
 
-                    # ------------------------------------------------
-                    # Normalize resume response too.
-                    # ------------------------------------------------
-
                     returned_thread_id, result = (
-                        normalize_workflow_response(
-                            raw_response
-                        )
+                        normalize_workflow_response(raw_response)
                     )
 
                     if returned_thread_id:
+                        st.session_state.thread_id = returned_thread_id
 
-                        st.session_state.thread_id = (
-                            returned_thread_id
-                        )
-
-                    # ------------------------------------------------
-                    # SECOND INTERRUPT
-                    # ------------------------------------------------
-
-                    next_approval = (
-                        extract_interrupt_data(
-                            result
-                        )
-                    )
+                    next_approval = extract_interrupt_data(result)
 
                     if next_approval is not None:
-
-                        st.session_state.approval_data = (
-                            next_approval
-                        )
-
-                        st.session_state.approval_pending = (
-                            True
-                        )
+                        st.session_state.approval_data = next_approval
+                        st.session_state.approval_pending = True
 
                         status.update(
                             label="Another approval is required",
                             state="complete",
                         )
-
                     else:
-
-                        st.session_state.workflow_result = (
-                            result
-                        )
-
-                        st.session_state.approval_pending = (
-                            False
-                        )
-
-                        st.session_state.approval_data = (
-                            None
-                        )
+                        st.session_state.workflow_result = result
+                        st.session_state.approval_pending = False
+                        st.session_state.approval_data = None
 
                         status.update(
                             label="Workflow completed",
@@ -880,178 +677,84 @@ if st.session_state.approval_pending:
                         st.rerun()
 
                 except Exception as exc:
-
                     status.update(
                         label="Workflow failed",
                         state="error",
                     )
+                    st.error(f"Workflow error: {exc}")
 
-                    st.error(
-                        f"Workflow error: {exc}"
-                    )
-
-                    with st.expander(
-                        "Technical error details"
-                    ):
-
-                        st.exception(
-                            exc
-                        )
-
-        # ========================================================
-        # REJECT
-        # ========================================================
+                    with st.expander("Technical error details"):
+                        st.exception(exc)
 
         if reject_clicked:
-
             try:
-
-                raw_response = resume_workflow(
+                result = resume_workflow(
                     st.session_state.thread_id,
                     approved=False,
                 )
 
-                _, result = (
-                    normalize_workflow_response(
-                        raw_response
-                    )
-                )
-
-                st.session_state.workflow_result = (
-                    result
-                )
-
-                st.session_state.approval_pending = (
-                    False
-                )
-
-                st.session_state.approval_data = (
-                    None
-                )
+                st.session_state.workflow_result = result
+                st.session_state.approval_pending = False
+                st.session_state.approval_data = None
 
                 st.rerun()
 
             except Exception as exc:
+                st.error(f"Workflow error: {exc}")
 
-                st.error(
-                    f"Workflow error: {exc}"
-                )
-
-                with st.expander(
-                    "Technical error details"
-                ):
-
-                    st.exception(
-                        exc
-                    )
-
-
-# ============================================================
-# RESULT
-# ============================================================
 
 result = st.session_state.workflow_result
 
 if result:
-
     st.write("")
-
     st.divider()
 
-    st.caption(
-        "ENGINEERING RESULT"
-    )
+    st.caption("ENGINEERING RESULT")
+    st.subheader("Agent execution complete")
 
-    st.subheader(
-        "Agent execution complete"
-    )
+    _, result = normalize_workflow_response(result)
 
-    # Safety normalization
-    _, result = normalize_workflow_response(
-        result
-    )
-
-    tests_passed = bool(
-        result.get(
-            "tests_passed",
-            False,
-        )
-    )
-
-    status_value = str(
-        result.get(
-            "status",
-            "unknown",
-        )
-    )
-
-    iteration = result.get(
-        "iteration",
-        0,
-    )
-
+    tests_passed = bool(result.get("tests_passed", False))
+    status_value = str(result.get("status", "unknown"))
+    iteration = result.get("iteration", 0)
     implementation_results = result.get(
         "implementation_results",
         [],
     )
+    changed_files = result.get("changed_files", [])
+    file_changes = result.get("file_changes", [])
 
     if tests_passed:
-
         st.success(
             "✓ Build completed successfully — "
             "implementation verified and tests passed."
         )
-
     else:
-
         st.warning(
-            "⚠ Workflow completed, but verification "
-            "did not pass."
+            "⚠ Workflow completed, but verification did not pass."
         )
 
-    result_col1, result_col2, result_col3, result_col4 = (
-        st.columns(4)
-    )
+    result_col1, result_col2, result_col3, result_col4 = st.columns(4)
 
     with result_col1:
-
-        st.metric(
-            "Status",
-            status_value,
-        )
+        st.metric("Status", status_value)
 
     with result_col2:
-
         st.metric(
             "Tests",
             "PASSED" if tests_passed else "FAILED",
         )
 
     with result_col3:
-
-        st.metric(
-            "Debug Iterations",
-            iteration,
-        )
+        st.metric("Debug Iterations", iteration)
 
     with result_col4:
-
         st.metric(
             "Files Changed",
-            len(
-                implementation_results
-            )
-            if isinstance(
-                implementation_results,
-                list,
-            )
+            len(changed_files)
+            if isinstance(changed_files, list)
             else 0,
         )
-
-
-    # ========================================================
-    # ACTIVITY
-    # ========================================================
 
     st.write("")
 
@@ -1061,189 +764,103 @@ if result:
     )
 
     with activity_col:
-
-        with st.container(
-            border=True
-        ):
-
-            st.caption(
-                "AGENT ACTIVITY"
-            )
-
-            st.subheader(
-                "Execution summary"
-            )
+        with st.container(border=True):
+            st.caption("AGENT ACTIVITY")
+            st.subheader("Execution summary")
 
             st.markdown(
                 """
-                ✓ Repository context retrieved
+✓ Repository context retrieved
 
-                ✓ Relevant code identified with RAG
+✓ Relevant code identified with RAG
 
-                ✓ Implementation plan generated
+✓ Implementation plan generated
 
-                ✓ Human approval checkpoint completed
+✓ Human approval checkpoint completed
 
-                ✓ Source changes implemented
+✓ Source changes implemented
 
-                ✓ Automated tests executed
+✓ Automated tests executed
 
-                ✓ Final code review completed
-                """
+✓ Final code review completed
+"""
             )
-
-
-    # ========================================================
-    # FILES
-    # ========================================================
 
     with files_col:
+        with st.container(border=True):
+            st.caption("SOURCE CHANGES")
+            st.subheader("Files touched")
 
-        with st.container(
-            border=True
-        ):
-
-            st.caption(
-                "SOURCE CHANGES"
-            )
-
-            st.subheader(
-                "Files touched"
-            )
-
-            if implementation_results:
-
-                for item in implementation_results:
-
-                    if isinstance(
-                        item,
-                        dict,
-                    ):
-
-                        file_name = item.get(
-                            "file",
-                            item.get(
-                                "path",
-                                "Unknown file",
-                            ),
-                        )
-
-                    else:
-
-                        file_name = str(
-                            item
-                        )
-
-                    st.code(
-                        file_name,
-                        language="text",
-                    )
-
+            if changed_files:
+                for file_name in changed_files:
+                    st.code(file_name, language="text")
             else:
+                st.caption("No files were changed.")
 
-                st.caption(
-                    "No source files were changed."
+    if file_changes:
+        st.write("")
+        with st.expander("📝 Source and test changes", expanded=False):
+            import difflib
+
+            for change in file_changes:
+                if not change.get("changed"):
+                    continue
+
+                file_name = change.get("file", "Unknown file")
+                category = change.get("category", "file")
+                before = str(change.get("before", ""))
+                after = str(change.get("after", ""))
+
+                st.markdown(f"**{file_name}** · `{category}`")
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        before.splitlines(),
+                        after.splitlines(),
+                        fromfile=f"a/{file_name}",
+                        tofile=f"b/{file_name}",
+                        lineterm="",
+                    )
                 )
+                st.code(diff or "No textual difference.", language="diff")
 
-
-    # ========================================================
-    # TEST OUTPUT
-    # ========================================================
-
-    test_result = result.get(
-        "test_result",
-        "",
-    )
+    test_result = result.get("test_result", "")
 
     if test_result:
-
         st.write("")
-
         with st.expander(
             "🧪 Test execution output",
             expanded=False,
         ):
+            st.code(str(test_result), language="text")
 
-            st.code(
-                str(test_result),
-                language="text",
-            )
-
-
-    # ========================================================
-    # DEBUG OUTPUT
-    # ========================================================
-
-    debug_result = result.get(
-        "debug_result",
-        "",
-    )
+    debug_result = result.get("debug_result", "")
 
     if debug_result:
-
         st.write("")
-
         with st.expander(
             "🔄 Debugging information",
             expanded=False,
         ):
+            st.markdown(str(debug_result))
 
-            st.markdown(
-                str(debug_result)
-            )
-
-
-    # ========================================================
-    # REVIEW
-    # ========================================================
-
-    review_result = result.get(
-        "review_result",
-        "",
-    )
+    review_result = result.get("review_result", "")
 
     if review_result:
-
         st.write("")
 
-        with st.container(
-            border=True
-        ):
-
-            st.caption(
-                "FINAL REVIEW"
-            )
-
-            st.subheader(
-                "Code review"
-            )
-
-            st.markdown(
-                str(review_result)
-            )
-
-
-    # ========================================================
-    # TECHNICAL OUTPUT
-    # ========================================================
+        with st.container(border=True):
+            st.caption("FINAL REVIEW")
+            st.subheader("Code review")
+            st.markdown(str(review_result))
 
     with st.expander(
         "Technical workflow output",
         expanded=False,
     ):
+        st.code(str(result), language="python")
 
-        st.code(
-            str(result),
-            language="python",
-        )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
 
 st.write("")
-
 st.divider()
 
 st.caption(

@@ -4,199 +4,142 @@ from pathlib import Path
 WORKSPACE_ROOT = Path("workspace").resolve()
 
 
-def _safe_path(file_path: str) -> tuple[bool, Path, str]:
-    """
-    Ensure the requested path stays inside workspace/.
-    """
+def _resolve_allowed_root(allowed_root: str | Path | None) -> Path:
+    return Path(allowed_root).resolve() if allowed_root else WORKSPACE_ROOT
+
+
+def _safe_path(
+    file_path: str,
+    allowed_root: str | Path | None = None,
+) -> tuple[bool, Path, str]:
+    """Ensure the requested path stays inside the allowed root."""
+    root = _resolve_allowed_root(allowed_root)
 
     try:
         path = Path(file_path).resolve()
 
-        if path == WORKSPACE_ROOT:
-            return False, path, "Cannot operate directly on workspace root."
+        if path == root:
+            return False, path, "Cannot operate directly on the allowed root."
 
-        if WORKSPACE_ROOT not in path.parents:
-            return (
-                False,
-                path,
-                f"Access denied. File must be inside: {WORKSPACE_ROOT}"
-            )
-
+        path.relative_to(root)
         return True, path, ""
 
-    except Exception as e:
-        return False, Path(file_path), str(e)
+    except ValueError:
+        return (
+            False,
+            Path(file_path),
+            f"Access denied. Path must be inside: {root}",
+        )
+    except Exception as exc:
+        return False, Path(file_path), str(exc)
 
 
-def read_file(file_path: str) -> str:
-    """Read a text file."""
-
-    safe, path, error = _safe_path(file_path)
+def read_file(
+    file_path: str,
+    allowed_root: str | Path | None = None,
+) -> str:
+    safe, path, error = _safe_path(file_path, allowed_root)
 
     if not safe:
         return f"Error: {error}"
-
     if not path.exists():
         return f"Error: File not found: {file_path}"
-
     if not path.is_file():
         return f"Error: Path is not a file: {file_path}"
 
     try:
-        return path.read_text(
-            encoding="utf-8",
-            errors="ignore"
-        )
-
-    except Exception as e:
-        return f"Error reading file: {e}"
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as exc:
+        return f"Error reading file: {exc}"
 
 
-def list_files(directory: str) -> str:
-    """List files inside a workspace directory."""
-
-    safe, path, error = _safe_path(directory)
+def list_files(
+    directory: str,
+    allowed_root: str | Path | None = None,
+) -> str:
+    safe, path, error = _safe_path(directory, allowed_root)
 
     if not safe:
         return f"Error: {error}"
-
     if not path.exists():
         return f"Error: Directory not found: {directory}"
-
     if not path.is_dir():
         return f"Error: Not a directory: {directory}"
 
+    excluded = {
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "node_modules",
+        ".mypy_cache",
+        ".pytest_cache",
+    }
+
     files = []
-
     for item in path.rglob("*"):
+        if not item.is_file():
+            continue
+        if any(part in excluded for part in item.parts):
+            continue
+        files.append(str(item))
 
-        if item.is_file():
-
-            # Skip common unwanted directories
-            if any(
-                part in {
-                    ".git",
-                    ".venv",
-                    "venv",
-                    "__pycache__",
-                    "node_modules"
-                }
-                for part in item.parts
-            ):
-                continue
-
-            files.append(str(item))
-
-    if not files:
-        return "No files found."
-
-    return "\n".join(files)
+    return "\n".join(files) if files else "No files found."
 
 
 def write_file(
     file_path: str,
-    content: str
+    content: str,
+    allowed_root: str | Path | None = None,
 ) -> str:
-    """
-    Create a new file or completely replace
-    an existing file.
-    """
-
-    safe, path, error = _safe_path(file_path)
+    safe, path, error = _safe_path(file_path, allowed_root)
 
     if not safe:
         return f"Error: {error}"
 
     try:
-
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        path.write_text(
-            content,
-            encoding="utf-8"
-        )
-
-        return (
-            f"Successfully wrote file: "
-            f"{file_path}"
-        )
-
-    except Exception as e:
-        return f"Error writing file: {e}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return f"Successfully wrote file: {file_path}"
+    except Exception as exc:
+        return f"Error writing file: {exc}"
 
 
 def create_file(
     file_path: str,
-    content: str
+    content: str,
+    allowed_root: str | Path | None = None,
 ) -> str:
-    """
-    Create a new file.
-
-    Does not overwrite an existing file.
-    """
-
-    safe, path, error = _safe_path(file_path)
+    safe, path, error = _safe_path(file_path, allowed_root)
 
     if not safe:
         return f"Error: {error}"
-
     if path.exists():
-        return (
-            f"Error: File already exists: "
-            f"{file_path}"
-        )
+        return f"Error: File already exists: {file_path}"
 
     try:
-
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        path.write_text(
-            content,
-            encoding="utf-8"
-        )
-
-        return (
-            f"Successfully created file: "
-            f"{file_path}"
-        )
-
-    except Exception as e:
-        return f"Error creating file: {e}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return f"Successfully created file: {file_path}"
+    except Exception as exc:
+        return f"Error creating file: {exc}"
 
 
-def delete_file(file_path: str) -> str:
-    """
-    Delete a file inside workspace.
-
-    Kept separate from the agent's default tools
-    for now so accidental deletion is avoided.
-    """
-
-    safe, path, error = _safe_path(file_path)
+def delete_file(
+    file_path: str,
+    allowed_root: str | Path | None = None,
+) -> str:
+    safe, path, error = _safe_path(file_path, allowed_root)
 
     if not safe:
         return f"Error: {error}"
-
     if not path.exists():
         return f"Error: File not found: {file_path}"
-
     if not path.is_file():
         return f"Error: Not a file: {file_path}"
 
     try:
-
         path.unlink()
-
-        return (
-            f"Successfully deleted: "
-            f"{file_path}"
-        )
-
-    except Exception as e:
-        return f"Error deleting file: {e}"
+        return f"Successfully deleted: {file_path}"
+    except Exception as exc:
+        return f"Error deleting file: {exc}"
